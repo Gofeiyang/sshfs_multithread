@@ -1,13 +1,3 @@
-/* ********************************
- * Author:       Johan Hanssen Seferidis
- * License:	     MIT
- * Description:  Library providing a threading pool where you can add
- *               work. For usage, check the thpool.h file or README.md
- *
- *//** @file thpool.h *//*
- *
- ********************************/
-
 #if defined(__APPLE__)
 #include <AvailabilityMacros.h>
 #else
@@ -58,10 +48,6 @@ static volatile int threads_on_hold;
 
 
 
-/* ========================== STRUCTURES ============================ */
-
-
-/* Binary semaphore */
 typedef struct bsem {
 	pthread_mutex_t mutex;
 	pthread_cond_t   cond;
@@ -109,9 +95,6 @@ typedef struct thpool_{
 
 
 
-/* ========================== PROTOTYPES ============================ */
-
-
 static int  thread_init(thpool_* thpool_p, struct thread** thread_p, int id);
 static void* thread_do(struct thread* thread_p);
 static void  thread_hold(int sig_id);
@@ -129,11 +112,6 @@ static void  bsem_post(struct bsem *bsem_p);
 static void  bsem_post_all(struct bsem *bsem_p);
 static void  bsem_wait(struct bsem *bsem_p);
 
-
-
-
-
-/* ========================== THREADPOOL ============================ */
 
 
 /* Initialise thread pool */
