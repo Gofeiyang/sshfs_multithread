@@ -267,15 +267,6 @@ int thpool_num_threads_working(thpool_* thpool_p){
 
 
 
-/* ============================ THREAD ============================== */
-
-
-/* Initialize a thread in the thread pool
- *
- * @param thread        address to the pointer of the thread to be created
- * @param id            id to be given to the thread
- * @return 0 on success, -1 otherwise.
- */
 static int thread_init (thpool_* thpool_p, struct thread** thread_p, int id){
 
 	*thread_p = (struct thread*)malloc(sizeof(struct thread));
@@ -303,14 +294,6 @@ static void thread_hold(int sig_id) {
 }
 
 
-/* What each thread is doing
-*
-* In principle this is an endless loop. The only time this loop gets interrupted is once
-* thpool_destroy() is invoked or the program exits.
-*
-* @param  thread        thread that will run this function
-* @return nothing
-*/
 static void* thread_do(struct thread* thread_p){
 
 	/* Set thread name for profiling and debugging */

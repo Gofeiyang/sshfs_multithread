@@ -8,7 +8,7 @@
 
 #define _GNU_SOURCE /* avoid implicit declaration of *pt* functions */
 #include "config.h"
-
+#include "thpool.h"
 #include <fuse.h>
 #include <fuse_opt.h>
 #if !defined(__CYGWIN__)
@@ -686,6 +686,9 @@ static int list_empty(const struct list_head *head)
 
 /* given a pointer to the uid/gid, and the mapping table, remap the
  * uid/gid, if necessary */
+ /*
+ 通过map，在不同user id下切换
+ */
 static inline int translate_id(uint32_t *id, GHashTable *map)
 {
 	gpointer id_p;
@@ -706,6 +709,9 @@ static inline int translate_id(uint32_t *id, GHashTable *map)
 	}
 }
 
+/*
+缓冲区！ 用于收发数据。
+*/
 static inline void buf_init(struct buffer *buf, size_t size)
 {
 	if (size)
@@ -1198,7 +1204,9 @@ static struct conn *get_conn(const struct sshfs_file *sf,
 	}
 	return &sshfs.conns[best_index];
 }
-
+/*
+新建主伪终端
+*/
 static int pty_master(char **name)
 {
 	int mfd;
@@ -3450,6 +3458,30 @@ static int sshfs_async_read(struct sshfs_file *sf, char *rbuf, size_t size,
 
 	return total;
 }
+typedef struct {
+    char *path;         // 文件路径
+    char *buf;          // 任务缓冲区
+    size_t size;        // 任务读取大小
+    off_t offset;       // 任务开始偏移
+	struct sshfs_file *sf; // 指向sshfs_file的指针
+} read_task_t;
+
+// 任务执行函数
+void *task_sync_read_func(void *arg) {
+    read_task_t *task = (read_task_t *)arg;
+
+    int res = sshfs_sync_read(task->sf, task->buf, task->size, task->offset);
+    free(task); // 假设任务执行完成后释放
+    return NULL;
+}
+
+void *task_async_read_func(void *arg) {
+    read_task_t *task = (read_task_t *)arg;
+
+    int res = sshfs_async_read(task->sf, task->buf, task->size, task->offset);
+    free(task); // 假设任务执行完成后释放
+    return NULL;
+}
 
 typedef struct
 {
@@ -3498,6 +3530,7 @@ static int sshfs_read(const char *path, char *rbuf, size_t size, off_t offset,
 	// create the thread pool
 	threadpool thpool = thpool_init(8);
 	struct sshfs_file *sf = get_sshfs_file(fi);
+<<<<<<< HEAD
 	(void)path;
 
 	if (!sshfs_file_is_conn(sf))
@@ -3512,6 +3545,21 @@ static int sshfs_read(const char *path, char *rbuf, size_t size, off_t offset,
 		{
 			size_t mytask_size = remaining < max_task_size ? remaining : max_task_size;
 			read_task_t *task = malloc(sizeof(read_task_t));
+=======
+	(void) path;
+	
+	if (!sshfs_file_is_conn(sf))
+		return -EIO;
+    size_t max_task_size = 1024 * 32; // 32kb
+    size_t remaining = size;
+    off_t current_offset = offset;
+
+	if (sshfs.sync_read) {
+		int res;
+		while (remaining > 0) {
+			size_t mytask_size = remaining < max_task_size ? remaining : max_task_size;
+			read_task_t * task = malloc(sizeof(read_task_t));
+>>>>>>> 160ca0c92ba00d7c722ffe82fef9c042c8c626cf
 			task->sf = sf;
 			task->buf = rbuf + (current_offset - offset);
 			task->size = mytask_size;
@@ -3524,12 +3572,20 @@ static int sshfs_read(const char *path, char *rbuf, size_t size, off_t offset,
 		thpool_destroy(thpool);
 		return size;
 	}
+<<<<<<< HEAD
 	else
 	{
 		while (remaining > 0)
 		{
 			size_t mytask_size = remaining < max_task_size ? remaining : max_task_size;
 			read_task_t *task = malloc(sizeof(read_task_t));
+=======
+	else {
+		int res;
+		while (remaining > 0) {
+			size_t mytask_size = remaining < max_task_size ? remaining : max_task_size;
+			read_task_t * task = malloc(sizeof(read_task_t));
+>>>>>>> 160ca0c92ba00d7c722ffe82fef9c042c8c626cf
 			task->sf = sf;
 			task->buf = rbuf + (current_offset - offset);
 			task->size = mytask_size;
@@ -4843,10 +4899,10 @@ int main(int argc, char *argv[])
 
 	sshfs.randseed = time(0);
 
-	if (sshfs.max_read > 65536)
-		sshfs.max_read = 65536;
-	if (sshfs.max_write > 65536)
-		sshfs.max_write = 65536;
+	// if (sshfs.max_read > 65536)
+	// 	sshfs.max_read = 65536;
+	// if (sshfs.max_write > 65536)
+	// 	sshfs.max_write = 65536;
 
 	fsname = fsname_escape_commas(fsname);
 	tmp = g_strdup_printf("-osubtype=sshfs,fsname=%s", fsname);
