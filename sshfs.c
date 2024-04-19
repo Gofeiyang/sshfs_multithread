@@ -3210,7 +3210,7 @@ typedef struct {
 // 任务执行函数
 void *task_sync_read_func(void *arg) {
     read_task_t *task = (read_task_t *)arg;
-
+	
     int res = sshfs_sync_read(task->sf, task->buf, task->size, task->offset);
     free(task); // 假设任务执行完成后释放
     return NULL;
@@ -3239,7 +3239,6 @@ static int sshfs_read(const char *path, char *rbuf, size_t size, off_t offset,
     off_t current_offset = offset;
 
 	if (sshfs.sync_read) {
-		int res;
 		while (remaining > 0) {
 			size_t mytask_size = remaining < max_task_size ? remaining : max_task_size;
 			read_task_t * task = malloc(sizeof(read_task_t));
@@ -3256,7 +3255,6 @@ static int sshfs_read(const char *path, char *rbuf, size_t size, off_t offset,
 		return size;
 	}
 	else {
-		int res;
 		while (remaining > 0) {
 			size_t mytask_size = remaining < max_task_size ? remaining : max_task_size;
 			read_task_t * task = malloc(sizeof(read_task_t));
@@ -3397,27 +3395,76 @@ static int sshfs_sync_write(struct sshfs_file *sf, const char *wbuf,
 
 	return err;
 }
-
-static int sshfs_write(const char *path, const char *wbuf, size_t size,
-                       off_t offset, struct fuse_file_info *fi)
+static int sshfs_write(const char *path, const char *wbuf, size_t size, off_t offset, struct fuse_file_info *fi)
 {
-	int err;
-	struct sshfs_file *sf = get_sshfs_file(fi);
+    // Initialize the thread pool
+    threadpool thpool = thpool_init(8);
+    struct sshfs_file *sf = get_sshfs_file(fi);
+    (void) path;
+    
+    if (!sshfs_file_is_conn(sf))
+        return -EIO;
 
-	(void) path;
+    sshfs_inc_modifver();
 
-	if (!sshfs_file_is_conn(sf))
-		return -EIO;
+    size_t max_task_size = 1024 * 32; // 32kb
+    size_t remaining = size;
+    off_t current_offset = offset;
+    
+    if (!sshfs.sync_write && !sf->write_error) {
+        while (remaining > 0) {
+            size_t mytask_size = remaining < max_task_size ? remaining : max_task_size;
+            write_task_t *task = malloc(sizeof(write_task_t));
+            task->sf = sf;
+            task->buf = (char *)wbuf + (current_offset - offset); // Cast to non-const to match type, actual modification is not intended
+            task->size = mytask_size;
+            task->offset = current_offset;
+            thpool_add_work(thpool, task_async_write_func, (void *)task);
+            remaining -= mytask_size;
+            current_offset += mytask_size;
+        }
+    } else {
+        while (remaining > 0) {
+            size_t mytask_size = remaining < max_task_size ? remaining : max_task_size;
+            write_task_t *task = malloc(sizeof(write_task_t));
+            task->sf = sf;
+            task->buf = (char *)wbuf + (current_offset - offset); // Cast to non-const to match type, actual modification is not intended
+            task->size = mytask_size;
+            task->offset = current_offset;
+            thpool_add_work(thpool, task_sync_write_func, (void *)task);
+            remaining -= mytask_size;
+            current_offset += mytask_size;
+        }
+    }
+    // Wait for all tasks to complete
+    thpool_wait(thpool);
+    thpool_destroy(thpool);
 
-	sshfs_inc_modifver();
-
-	if (!sshfs.sync_write && !sf->write_error)
-		err = sshfs_async_write(sf, wbuf, size, offset);
-	else
-		err = sshfs_sync_write(sf, wbuf, size, offset);
-
-	return err ? err : (int) size;
+    // If we reached this point, the write operation was successful
+    // Return the number of bytes written as per the function's contract
+    return size;
 }
+
+// static int sshfs_write(const char *path, const char *wbuf, size_t size,
+//                        off_t offset, struct fuse_file_info *fi)
+// {
+// 	int err;
+// 	struct sshfs_file *sf = get_sshfs_file(fi);
+
+// 	(void) path;
+
+// 	if (!sshfs_file_is_conn(sf))
+// 		return -EIO;
+
+// 	sshfs_inc_modifver();
+
+// 	if (!sshfs.sync_write && !sf->write_error)
+// 		err = sshfs_async_write(sf, wbuf, size, offset);
+// 	else
+// 		err = sshfs_sync_write(sf, wbuf, size, offset);
+
+// 	return err ? err : (int) size;
+// }
 
 static int sshfs_ext_statvfs(const char *path, struct statvfs *stbuf)
 {
